@@ -423,13 +423,16 @@ function inspect(){
   const per=perDay(),wds=weekdays();let prevEnd=null,prevName="";
   return EV.leagues.map((l,k)=>{
     const G=gamesOf(k),p=G==null?null:planOf(l.n,G),raw=$(`d${k}`).value,start=toDay(raw);
-    const o={G,p,start,days:null,gErr:"",dErr:"",dEmpty:!raw};
+    const o={G,p,start,days:null,gErr:"",dErr:[],dEmpty:!raw};
     if(G==null)o.gErr="対局数を1〜60の整数で入れる";
     else if(!p.ok)o.gErr=p.why;
-    if(start==null)o.dErr="開始日を入れる";
-    else if(wds.size&&!wds.has(wdOf(start)))o.dErr=`開始日 ${short(start)} は開催曜日ではない`;
-    else if(prevEnd!=null&&start<=prevEnd)o.dErr=`開始日は、${prevName}の最終日 ${short(prevEnd)} より後にする`;
-    if(!o.gErr&&!o.dErr&&per!=null&&wds.size){o.days=daysFrom(start,Math.ceil(p.R/per),wds);prevEnd=o.days[o.days.length-1];prevName=l.name}
+    if(start==null)o.dErr.push("開始日を入れる");
+    else{
+      if(wds.size&&!wds.has(wdOf(start)))o.dErr.push(`開始日 ${short(start)} の曜日(${WD[wdOf(start)]})が、開催曜日にチェックされていない`);
+      if(prevEnd!=null&&prevEnd>start)o.dErr.push(`${prevName}の最終日 ${short(prevEnd)} が、開始日 ${short(start)} より後になっている`);
+    }
+    /* 最終日は、開始日の曜日が外れていても仮に数えて、次のリーグとの前後を調べる */
+    if(!o.gErr&&start!=null&&per!=null&&wds.size){const d=daysFrom(start,Math.ceil(p.R/per),wds);prevEnd=d[d.length-1];prevName=l.name;if(!o.dErr.length)o.days=d}
     else prevEnd=null;
     return o});
 }
@@ -442,7 +445,7 @@ function hints(){
     else if(!o.p.ok){a=o.p.why+"(全チームを同じ対局数にするため)";bad=true}
     else a=`${o.p.R}回戦・1回戦あたり${o.p.per}卓`+(o.p.rest?`・毎回${o.p.rest}チームが抜け番`:"")+(o.p.M%o.p.per?`(最後の回戦は${o.p.M%o.p.per}卓)`:"");
     if(o.days){const n=o.days.length;b2=`${n}日間 ${short(o.days[0])}`+(n>1?`〜${short(o.days[n-1])}`:"")+`・1日${per}回戦(${per*o.p.per}局)`}
-    else if(o.dErr&&!o.dEmpty){b2=o.dErr;bad2=true}
+    else if(o.dErr.length&&!o.dEmpty){b2=o.dErr.join(" / ");bad2=true}
     el.innerHTML=`<span${bad?' class="bad"':""}>${esc(a)}</span>`+(b2?`<span${bad2?' class="bad"':""}>${esc(b2)}</span>`:"");
   });
   return st;
@@ -457,8 +460,8 @@ function build(){
   $("wdays").setAttribute("aria-invalid",!wds.size);if(!wds.size){msg.push("開催曜日: 1つ以上選ぶ。");if(!focus)focus=$("w0")}
   EV.leagues.forEach((l,k)=>{const o=st[k];
     mark($(`g${k}`),!o.gErr);if(o.gErr)msg.push(`${l.name}: ${o.gErr}。`);
-    mark($(`d${k}`),!o.dErr);if(o.dErr)msg.push(`${l.name}: ${o.dErr}。`)});
-  if(msg.length){$("err").textContent=msg.join("\n");focus.focus();return}
+    mark($(`d${k}`),!o.dErr.length);o.dErr.forEach(m=>msg.push(`${l.name}: ${m}。`))});
+  if(msg.length){$("err").textContent=msg.join("\n");$("result").hidden=true;focus.focus();return}     // 前に作った表は、入力と食い違うので隠す
   $("err").textContent="";
   CAL={per,wds:[...wds]};
   SCH=EV.leagues.map((l,k)=>{const o=st[k],s=makeSchedule(l.n,o.G,(Math.random()*2**31)|0);
