@@ -429,7 +429,7 @@ function inspect(){
     if(start==null)o.dErr.push("開始日を入れる");
     else{
       if(wds.size&&!wds.has(wdOf(start)))o.dErr.push(`開始日 ${short(start)} の曜日(${WD[wdOf(start)]})が、開催曜日にチェックされていない`);
-      if(prevEnd!=null&&prevEnd>start)o.dErr.push(`${prevName}の最終日 ${short(prevEnd)} が、開始日 ${short(start)} より後になっている`);
+      if(prevEnd!=null&&prevEnd>=start)o.dErr.push(prevEnd===start?`${prevName}の最終日 ${short(prevEnd)} と、開始日が同じ日になっている`:`${prevName}の最終日 ${short(prevEnd)} が、開始日 ${short(start)} より後になっている`);
     }
     /* 最終日は、開始日の曜日が外れていても仮に数えて、次のリーグとの前後を調べる */
     if(!o.gErr&&start!=null&&per!=null&&wds.size){const d=daysFrom(start,Math.ceil(p.R/per),wds);prevEnd=d[d.length-1];prevName=l.name;if(!o.dErr.length)o.days=d}
