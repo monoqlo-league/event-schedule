@@ -156,7 +156,7 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
   <div class="actions">
     <input id="file" class="sr" type="file" accept=".csv,text/csv">
     <label for="file" class="btn ghost" id="fbtn">CSVファイルを選ぶ</label>
-    <span class="hint" id="fstat" role="status" aria-live="polite">大会CSV作成ツールで出力したCSV(例: 20261001.csv)を選ぶ。</span>
+    <span class="hint" id="fstat" role="status" aria-live="polite">大会CSV作成ツールで出力したCSV(例: 20261001-master.csv)を選ぶ。</span>
   </div>
 </section>
 
@@ -391,7 +391,7 @@ function toEvent(text,fileName){
     labels:k?Array.from({length:l.n},(_,i)=>`${plan[k-1].name}${i+1}位`):teams}));     // 2次以降は順位の枠
   const bad=leagues.find((l,k)=>l.n<4||k&&l.n>leagues[k-1].n);
   if(bad) throw new Error(`リーグ構成が読めない(${bad.name}のチーム数が${bad.n})。`);
-  const m=fileName.match(/^(\d{8})\.csv$/i);
+  const m=fileName.match(/^(\d{8})(?:-master)?\.csv$/i);      // 古い名前(20261001.csv)も受け付ける
   return {title:first(ce),key:m?m[1]:"",teams,leagues,notes};
 }
 $("file").addEventListener("change",async e=>{
