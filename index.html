@@ -189,8 +189,8 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
 <section id="result" hidden>
   <div class="rtools">
     <div class="seg" role="group" aria-label="表の見かた">
-      <button type="button" id="vTeam" aria-pressed="true">チーム別</button>
-      <button type="button" id="vRound" aria-pressed="false">回戦別</button>
+      <button type="button" id="vRound" aria-pressed="true">回戦別</button>
+      <button type="button" id="vTeam" aria-pressed="false">チーム別</button>
     </div>
     <div class="actions">
       <button class="btn ghost" type="button" id="again">別の組み合わせで作り直す</button>
@@ -345,7 +345,7 @@ const TABLE="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 let EV=null;        // 読み込んだ大会 {title,key,teams:[名前],leagues:[{name,n,labels}]}
 let SCH=[];         // リーグごとのスケジュール(rounds・seat・stats に、G=対局数、days=開催日、date=回戦ごとの日付 を足したもの)
 let CAL=null;       // 作ったときの日程の設定 {per:1日の試合数,wds:[開催曜日 0=日…6=土]}
-let VIEW="team";
+let VIEW="round";
 
 /* ---------- 大会CSVの読み込み ---------- */
 function parseCSV(text){
