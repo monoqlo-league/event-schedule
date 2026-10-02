@@ -72,8 +72,13 @@ h1{font-size:clamp(26px,5vw,36px);font-weight:900;line-height:1.25;margin:0;text
 .hintline{margin:0;font-size:13px;color:var(--muted)}
 .lgset{display:grid;gap:8px}
 .dayset{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:16px 28px;align-items:start}
-.wdays{border:0;margin:0;padding:0;min-width:0}
-.wdays legend{padding:0;margin-bottom:6px}
+.wdays,.tnames{border:0;margin:0;padding:0;min-width:0}
+.wdays legend,.tnames legend{padding:0;margin-bottom:6px}
+.tnames{grid-column:1 / -1}
+.tnrow{display:flex;flex-wrap:wrap;gap:8px}
+.tn{display:inline-flex;align-items:center;gap:6px}
+.tn span{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);min-width:1.2em;text-align:right}
+.tn .in{width:9.5em}
 .wdrow{display:flex;flex-wrap:wrap;gap:6px}
 .wd{display:inline-flex;align-items:center;gap:6px;padding:7px 12px 7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);cursor:pointer;font-size:14px;font-weight:700;color:var(--muted)}
 .wd input{width:16px;height:16px;margin:0;accent-color:var(--accent);cursor:pointer}
@@ -113,7 +118,9 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
 .sch td.rest{color:var(--muted)}
 .sch td.cnt,.sch th.cnt{color:var(--muted);font-size:12px;border-left:1px solid var(--line)}
 .sch td.cnt~td.cnt,.sch th.cnt~th.cnt{border-left:0}
-.sch td.tb{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--accent)}
+.sch td.tb{font-family:inherit;font-weight:700;color:var(--accent)}
+.sch td.tc{font-family:"Zen Kaku Gothic New",sans-serif}
+.sch td.tc b{margin-left:5px}
 .sch td.rnd{font-family:"IBM Plex Mono",monospace;color:var(--muted)}
 .seatE{color:var(--accent)}
 .sch .dt{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:400;color:var(--muted);letter-spacing:0}
@@ -173,6 +180,11 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
         <label class="wd"><input type="checkbox" id="w6" value="6"><span>土</span></label>
       </div>
       <small>対局を行う曜日をすべて選ぶ。全リーグ共通。</small>
+    </fieldset>
+    <fieldset class="field tnames" id="tnames">
+      <legend class="flabel">卓の名前</legend>
+      <div class="tnrow" id="tnrow"></div>
+      <small id="tnhint"></small>
     </fieldset>
   </div>
   <p class="hintline">1チームが打つ対局数と開始日を、リーグごとに入れる。開始日から、開催曜日ごとに「1日の試合数」ずつ回戦を割り当てる。2次以降のリーグは、進むチームがまだ決まらないため、「予選1位」のような順位の枠で組み合わせを作る。</p>
@@ -341,10 +353,10 @@ function statsOf(n,G,rounds,seat){
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const norm=s=>String(s||"").normalize("NFKC").trim();
-const TABLE="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const TABLE_DEFAULT=["薔薇","金木犀","向日葵"];      // 卓の名前の初期値。4つ目からは空欄
 let EV=null;        // 読み込んだ大会 {title,key,teams:[名前],leagues:[{name,n,labels}]}
 let SCH=[];         // リーグごとのスケジュール(rounds・seat・stats に、G=対局数、days=開催日、date=回戦ごとの日付 を足したもの)
-let CAL=null;       // 作ったときの日程の設定 {per:1日の試合数,wds:[開催曜日 0=日…6=土]}
+let CAL=null;       // 作ったときの設定 {per:1日の試合数,wds:[開催曜日 0=日…6=土],tables:[卓の名前]}
 let VIEW="round";
 
 /* ---------- 大会CSVの読み込み ---------- */
@@ -411,10 +423,16 @@ function showSetup(){
 <label class="lgf"><span class="ml">1チームの対局数</span><input id="g${k}" class="in mono" type="number" inputmode="numeric" min="1" max="60" step="1" aria-label="${esc(l.name)}の1チームあたりの対局数" data-k="${k}"></label>
 <label class="lgf"><span class="ml">開始日</span><input id="d${k}" class="in mono" type="date" aria-label="${esc(l.name)}の開始日" data-k="${k}"></label>
 <span class="lgplan" id="p${k}"></span></div>`).join("");
+  /* 卓の名前の欄。数は、チーム数を4で割った数(余りは切り捨て)。前に入れた名前は残す */
+  const nt=tableCount(),prev=[...document.querySelectorAll("#tnrow input")].map(x=>x.value);
+  $("tnrow").innerHTML=Array.from({length:nt},(_,i)=>`<label class="tn"><span>${i+1}</span><input id="t${i}" class="in" type="text" maxlength="12" value="${esc(i<prev.length?prev[i]:TABLE_DEFAULT[i]||"")}" aria-label="${i+1}つ目の卓の名前"></label>`).join("");
+  $("tnhint").textContent=`${EV.leagues[0].n}チームなので${nt}卓。`+(EV.leagues.length>1?"チームが少ないリーグは、前から順に必要な数だけ使う。":"");
   hints();
   $("setup").hidden=false;$("result").hidden=true;$("err").textContent="";
   $("g0").focus();
 }
+const tableCount=()=>Math.floor(Math.max(...EV.leagues.map(l=>l.n))/4);
+function tableNames(){return Array.from({length:tableCount()},(_,i)=>norm($(`t${i}`).value))}
 function gamesOf(k){const v=norm($(`g${k}`).value);return /^\d+$/.test(v)&&+v>=1&&+v<=60?+v:null}
 function perDay(){const v=norm($("perday").value);return /^\d+$/.test(v)&&+v>=1&&+v<=20?+v:null}
 function weekdays(){return new Set([0,1,2,3,4,5,6].filter(i=>$(`w${i}`).checked))}
@@ -458,12 +476,16 @@ function build(){
   const mark=(el,ok)=>{el.setAttribute("aria-invalid",!ok);if(!ok&&!focus)focus=el};
   mark($("perday"),per!=null);if(per==null)msg.push("1日の試合数: 1〜20の整数で入れる。");
   $("wdays").setAttribute("aria-invalid",!wds.size);if(!wds.size){msg.push("開催曜日: 1つ以上選ぶ。");if(!focus)focus=$("w0")}
+  const tn=tableNames();
+  tn.forEach((v,i)=>{
+    const why=!v?"が空欄":v.includes("/")?"に「/」は使えない":v==="抜け番"?"に「抜け番」は使えない":tn.indexOf(v)<i?`が${tn.indexOf(v)+1}つ目と同じ名前`:"";
+    mark($(`t${i}`),!why);if(why)msg.push(`卓の名前: ${i+1}つ目${why}。`)});
   EV.leagues.forEach((l,k)=>{const o=st[k];
     mark($(`g${k}`),!o.gErr);if(o.gErr)msg.push(`${l.name}: ${o.gErr}。`);
     mark($(`d${k}`),!o.dErr.length);o.dErr.forEach(m=>msg.push(`${l.name}: ${m}。`))});
   if(msg.length){$("err").textContent=msg.join("\n");$("result").hidden=true;focus.focus();return}     // 前に作った表は、入力と食い違うので隠す
   $("err").textContent="";
-  CAL={per,wds:[...wds]};
+  CAL={per,wds:[...wds],tables:tn};
   SCH=EV.leagues.map((l,k)=>{const o=st[k],s=makeSchedule(l.n,o.G,(Math.random()*2**31)|0);
     return {...s,G:o.G,days:o.days,date:s.rounds.map((_,r)=>o.days[Math.floor(r/per)])}});
   $("fname").textContent=fileName();
@@ -486,10 +508,10 @@ function render(){
     let table;
     if(VIEW==="team"){
       table=`<table class="sch"><thead><tr><th>チーム</th>${s.rounds.map((_,r)=>`<th class="rd${dfirst(r)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></th>`).join("")}${SEATS.map(x=>`<th class="cnt">${x}</th>`).join("")}</tr></thead><tbody>`+
-        l.labels.map((name,i)=>`<tr><th scope="row">${esc(name)}</th>${s.rounds.map((_,r)=>{const c=cellOf(s,r,i);return c?`<td class="${dfirst(r)}">${TABLE[c[0]]}<b${c[1]?"":' class="seatE"'}>${SEATS[c[1]]}</b></td>`:`<td class="rest${dfirst(r)}">抜け番</td>`}).join("")}${[0,1,2,3].map(x=>`<td class="cnt">${s.seat[i][x]}</td>`).join("")}</tr>`).join("")+"</tbody></table>";
+        l.labels.map((name,i)=>`<tr><th scope="row">${esc(name)}</th>${s.rounds.map((_,r)=>{const c=cellOf(s,r,i);return c?`<td class="tc${dfirst(r)}">${esc(CAL.tables[c[0]])}<b${c[1]?"":' class="seatE"'}>${SEATS[c[1]]}</b></td>`:`<td class="rest${dfirst(r)}">抜け番</td>`}).join("")}${[0,1,2,3].map(x=>`<td class="cnt">${s.seat[i][x]}</td>`).join("")}</tr>`).join("")+"</tbody></table>";
     }else{
       table=`<table class="sch"><thead><tr><th>回戦</th><th>卓</th>${SEATS.map(x=>`<th class="l">${x}家</th>`).join("")}</tr></thead><tbody>`+
-        s.rounds.map((rd,r)=>rd.tables.map((t,ti)=>`<tr${ti?"":` class="${dfirst(r).trim()}"`}>${ti?"":`<td class="rnd" rowspan="${rd.tables.length+(rd.rest.length?1:0)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></td>`}<td class="tb">${TABLE[ti]}卓</td>${t.map(i=>`<td class="l" style="font-family:inherit">${esc(l.labels[i])}</td>`).join("")}</tr>`).join("")+
+        s.rounds.map((rd,r)=>rd.tables.map((t,ti)=>`<tr${ti?"":` class="${dfirst(r).trim()}"`}>${ti?"":`<td class="rnd" rowspan="${rd.tables.length+(rd.rest.length?1:0)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></td>`}<td class="tb">${esc(CAL.tables[ti])}</td>${t.map(i=>`<td class="l" style="font-family:inherit">${esc(l.labels[i])}</td>`).join("")}</tr>`).join("")+
           (rd.rest.length?`<tr><td class="rest">抜け番</td><td class="l rest" colspan="4" style="font-family:inherit">${rd.rest.map(i=>esc(l.labels[i])).join("、")}</td></tr>`:"")).join("")+"</tbody></table>";
     }
     return `<section class="league">${head}<div class="sbox">${table}</div></section>`;
@@ -503,10 +525,10 @@ const fileName=()=>EV.key?`${EV.key}-schedule.csv`:"schedule.csv";
 const q=v=>/[",\r\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v;
 function toCSV(){
   const maxR=Math.max(...SCH.map(s=>s.rounds.length)),wds=[...CAL.wds].sort((a,b)=>a-b).map(i=>WD[i]).join("");
-  const rows=[["大会名","リーグ","チーム","対局数","開始日","開催曜日","1日の試合数",...Array.from({length:maxR},(_,r)=>`第${r+1}戦`)]];
-  EV.leagues.forEach((l,k)=>{const s=SCH[k];
-    l.labels.forEach((name,i)=>rows.push([EV.title,l.name,name,String(s.G),iso(s.days[0]),wds,String(CAL.per),
-      ...Array.from({length:maxR},(_,r)=>{if(r>=s.rounds.length)return "";const c=cellOf(s,r,i);return `${full(s.date[r])} `+(c?`${TABLE[c[0]]}卓 ${SEATS[c[1]]}`:"抜け番")})]))});
+  const rows=[["大会名","リーグ","チーム","対局数","開始日","開催曜日","1日の試合数","卓",...Array.from({length:maxR},(_,r)=>`第${r+1}戦`)]];
+  EV.leagues.forEach((l,k)=>{const s=SCH[k],tbs=CAL.tables.slice(0,Math.floor(l.n/4)).join("/");      // このリーグで使う卓の名前(並び順)
+    l.labels.forEach((name,i)=>rows.push([EV.title,l.name,name,String(s.G),iso(s.days[0]),wds,String(CAL.per),tbs,
+      ...Array.from({length:maxR},(_,r)=>{if(r>=s.rounds.length)return "";const c=cellOf(s,r,i);return `${full(s.date[r])} `+(c?`${CAL.tables[c[0]]} ${SEATS[c[1]]}`:"抜け番")})]))});
   return rows.map(r=>r.map(q).join(",")).join("\r\n")+"\r\n";
 }
 $("dl").addEventListener("click",()=>{
