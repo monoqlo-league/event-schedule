@@ -1,5 +1,7 @@
 # MONOQLO 対局スケジュール作成ツール
 
+ページ: https://monoqlo-league.github.io/event-schedule/
+
 MONOQLO麻雀部 チーム戦(イベント戦)の、対局の組み合わせと席順を作るページ(`index.html`)を置くリポジトリ。
 
 大会CSV作成ツール(event-create)で出力したCSVを読み込み、リーグごとの対局数を入れると、偏りが小さい組み合わせと席順を作って、CSVで出力する。
