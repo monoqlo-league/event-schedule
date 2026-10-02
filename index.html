@@ -495,6 +495,8 @@ function build(){
 }
 
 /* ---------- 表示 ---------- */
+/* 卓の表示名。名前のあとに「卓」を付ける(薔薇 → 薔薇卓)。もともと「卓」で終わる名前はそのまま。CSVには名前だけを入れる */
+const tableLabel=n=>/卓$/.test(n)?n:n+"卓";
 const cellOf=(s,r,i)=>{for(let t=0;t<s.rounds[r].tables.length;t++){const k=s.rounds[r].tables[t].indexOf(i);if(k>=0)return [t,k]}return null};
 function render(){
   $("vTeam").setAttribute("aria-pressed",VIEW==="team");$("vRound").setAttribute("aria-pressed",VIEW==="round");
@@ -508,10 +510,10 @@ function render(){
     let table;
     if(VIEW==="team"){
       table=`<table class="sch"><thead><tr><th>チーム</th>${s.rounds.map((_,r)=>`<th class="rd${dfirst(r)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></th>`).join("")}${SEATS.map(x=>`<th class="cnt">${x}</th>`).join("")}</tr></thead><tbody>`+
-        l.labels.map((name,i)=>`<tr><th scope="row">${esc(name)}</th>${s.rounds.map((_,r)=>{const c=cellOf(s,r,i);return c?`<td class="tc${dfirst(r)}">${esc(CAL.tables[c[0]])}<b${c[1]?"":' class="seatE"'}>${SEATS[c[1]]}</b></td>`:`<td class="rest${dfirst(r)}">抜け番</td>`}).join("")}${[0,1,2,3].map(x=>`<td class="cnt">${s.seat[i][x]}</td>`).join("")}</tr>`).join("")+"</tbody></table>";
+        l.labels.map((name,i)=>`<tr><th scope="row">${esc(name)}</th>${s.rounds.map((_,r)=>{const c=cellOf(s,r,i);return c?`<td class="tc${dfirst(r)}">${esc(tableLabel(CAL.tables[c[0]]))}<b${c[1]?"":' class="seatE"'}>${SEATS[c[1]]}</b></td>`:`<td class="rest${dfirst(r)}">抜け番</td>`}).join("")}${[0,1,2,3].map(x=>`<td class="cnt">${s.seat[i][x]}</td>`).join("")}</tr>`).join("")+"</tbody></table>";
     }else{
       table=`<table class="sch"><thead><tr><th>回戦</th><th>卓</th>${SEATS.map(x=>`<th class="l">${x}家</th>`).join("")}</tr></thead><tbody>`+
-        s.rounds.map((rd,r)=>rd.tables.map((t,ti)=>`<tr${ti?"":` class="${dfirst(r).trim()}"`}>${ti?"":`<td class="rnd" rowspan="${rd.tables.length+(rd.rest.length?1:0)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></td>`}<td class="tb">${esc(CAL.tables[ti])}</td>${t.map(i=>`<td class="l" style="font-family:inherit">${esc(l.labels[i])}</td>`).join("")}</tr>`).join("")+
+        s.rounds.map((rd,r)=>rd.tables.map((t,ti)=>`<tr${ti?"":` class="${dfirst(r).trim()}"`}>${ti?"":`<td class="rnd" rowspan="${rd.tables.length+(rd.rest.length?1:0)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></td>`}<td class="tb">${esc(tableLabel(CAL.tables[ti]))}</td>${t.map(i=>`<td class="l" style="font-family:inherit">${esc(l.labels[i])}</td>`).join("")}</tr>`).join("")+
           (rd.rest.length?`<tr><td class="rest">抜け番</td><td class="l rest" colspan="4" style="font-family:inherit">${rd.rest.map(i=>esc(l.labels[i])).join("、")}</td></tr>`:"")).join("")+"</tbody></table>";
     }
     return `<section class="league">${head}<div class="sbox">${table}</div></section>`;
