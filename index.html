@@ -177,7 +177,7 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
   </div>
   <div class="actions" id="exrow" hidden>
     <input id="sfile" class="sr" type="file" accept=".csv,text/csv">
-    <label for="sfile" class="btn ghost small">スケジュールCSVを選んで読み込む</label>
+    <label for="sfile" class="btn ghost" id="sbtn">スケジュールCSVを選ぶ</label>
     <span class="hint" id="exstat" role="status" aria-live="polite"></span>
   </div>
 </section>
@@ -216,7 +216,7 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
   </div>
   <p class="err" id="err" role="alert"></p>
   <div class="actions">
-    <button class="btn" type="submit">スケジュールを作る</button>
+    <button class="btn" type="submit" id="go">スケジュールを作る</button>
   </div>
 </form>
 
@@ -480,10 +480,11 @@ function applyExisting(text,label){
   });
   syncRows();hints();
   st.style.color="";
-  st.textContent=`${label} を読み込んだ。${used.join("・")}の組み合わせと席を、そのまま使う。`+
-    (EV.leagues.some((l,k)=>k&&!OLD[k]&&!skipped.some(x=>x.startsWith(l.name)))?"CSVにないリーグは「未定」にした。":"")+
+  const tbd=EV.leagues.filter((l,k)=>k&&!OLD[k]&&!skipped.some(x=>x.startsWith(l.name+"("))).map(l=>l.name);
+  st.textContent=`${label} を読み込んだ。`+EV.leagues.map((l,k)=>OLD[k]?`${l.name}${OLD[k].G}局`:"").filter(Boolean).join("・")+"。"+
+    (tbd.length?`${tbd.join("・")}はCSVにないので「未定」にした。`:"")+
     (skipped.length?`読み込まなかったリーグ: ${skipped.join("、")}。`:"");
-  build(true);                                          // 読み込んだ内容を、すぐ下の表に出す
+  build();                                              // 読み込んだ組み合わせを、「スケジュールを修正する」を押したときと同じように表に出す
 }
 /* スケジュールCSV → リーグ名ごとの行 */
 function readExisting(text){
@@ -563,6 +564,9 @@ function showSetup(){
   $("tnrow").innerHTML=Array.from({length:nt},(_,i)=>`<label class="tn"><span>${i+1}</span><input id="t${i}" class="in" type="text" maxlength="12" value="${esc(i<prev.length?prev[i]:TABLE_DEFAULT[i]||"")}" aria-label="${i+1}つ目の卓の名前"></label>`).join("");
   $("tnhint").textContent=`${EV.leagues[0].n}チームなので${nt}卓。`+(EV.leagues.length>1?"チームが少ないリーグは、前から順に必要な数だけ使う。":"");
   syncRows();hints();
+  const has=OLD.some(Boolean);                           // スケジュールCSVを読み込んであるか
+  $("go").textContent=has?"スケジュールを修正する":"スケジュールを作る";
+  $("sbtn").textContent=has?"別のスケジュールCSVに差し替える":"スケジュールCSVを選ぶ";
   $("setup").hidden=false;$("result").hidden=true;$("err").textContent="";
   $("g0").focus();
 }
@@ -624,8 +628,7 @@ function hints(){
 $("setup").addEventListener("input",e=>{e.target.removeAttribute("aria-invalid");$("wdays").removeAttribute("aria-invalid");$("err").textContent="";syncRows();hints()});
 $("setup").addEventListener("submit",e=>{e.preventDefault();build()});
 $("again").addEventListener("click",()=>build());
-/* quiet=true は、スケジュールCSVを読み込んだ直後の表示用(入力に不足があっても、エラーを出さずに何もしない) */
-function build(quiet){
+function build(){
   const per=perDay(),wds=weekdays(),st=hints(),msg=[];let focus=null;
   const mark=(el,ok)=>{el.setAttribute("aria-invalid",!ok);if(!ok&&!focus)focus=el};
   mark($("perday"),per!=null);if(per==null)msg.push("1日の試合数: 1〜20の整数で入れる。");
@@ -639,7 +642,6 @@ function build(quiet){
     mark($(`d${k}`),!o.dErr.length);o.dErr.forEach(m=>msg.push(`${l.name}: ${m}。`))});
   if(msg.length){
     $("result").hidden=true;                             // 前に作った表は、入力と食い違うので隠す
-    if(quiet){document.querySelectorAll("#setup [aria-invalid]").forEach(el=>el.removeAttribute("aria-invalid"));return}
     $("err").textContent=msg.join("\n");focus.focus();return}
   $("err").textContent="";
   CAL={per,wds:[...wds],tables:tn};
@@ -653,7 +655,7 @@ function build(quiet){
   $("fname").textContent=fileName();
   $("result").hidden=false;$("out").hidden=true;$("dlmsg").hidden=true;
   render();
-  if(!quiet)$("result").scrollIntoView({block:"start",behavior:"auto"});
+  $("result").scrollIntoView({block:"start",behavior:"auto"});
 }
 
 /* ---------- 表示 ---------- */
