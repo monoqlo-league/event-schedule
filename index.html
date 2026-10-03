@@ -85,7 +85,7 @@ h1{font-size:clamp(26px,5vw,36px);font-weight:900;line-height:1.25;margin:0;text
 .wd:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
 .wd:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 .wdays[aria-invalid="true"] .wd{border-color:var(--minus)}
-.lghead,.lgrowi{display:grid;grid-template-columns:minmax(0,1fr) 84px 120px 168px minmax(0,1.9fr);gap:10px;align-items:center}
+.lghead,.lgrowi{display:grid;grid-template-columns:minmax(0,1fr) 84px 110px 160px 62px minmax(0,1.9fr);gap:10px;align-items:center}
 .lgf{display:grid;gap:4px;min-width:0}
 .lgf .ml{display:none;font-size:11px;color:var(--muted)}
 input[type="date"].in{padding-inline:8px;font-size:15px;min-height:42px}
@@ -93,6 +93,14 @@ input[type="date"].in{padding-inline:8px;font-size:15px;min-height:42px}
 .lgname{font-weight:700}
 .lgteams{font-family:"IBM Plex Mono",monospace;font-size:14px;color:var(--muted)}
 .lgplan{font-size:12px;color:var(--muted);display:grid;gap:1px;line-height:1.45}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;white-space:nowrap}
+.chk input{width:16px;height:16px;margin:0;accent-color:var(--accent);cursor:pointer}
+.chk:has(input:checked){color:var(--ink)}
+.chk.redo{font-size:12px;font-weight:500;margin-top:3px;justify-self:start}
+.in:disabled{opacity:.45;cursor:not-allowed}
+.btn.small{padding:7px 14px;font-size:13px}
+.keeptag{display:inline-block;margin-left:10px;padding:1px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent)!important;font-size:11px!important;font-weight:700!important}
+.league.tbd{border-style:dashed}
 .lgplan .bad{color:var(--minus)}
 #result{display:grid;gap:20px}
 .rtools{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
@@ -132,7 +140,9 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
   .lgrowi{grid-template-columns:minmax(0,7em) minmax(0,1fr);row-gap:6px;padding-top:12px;border-top:1px solid var(--line);align-items:end}
   .lgrowi .lgname{grid-column:1 / -1}
   .lgrowi .lgteams{display:none}
-  .lgrowi .lgplan{grid-column:1 / -1}
+  .lgrowi>.lgplan{grid-column:1 / -1}
+  .lgrowi .lgtbd{grid-column:1 / -1}
+  .lgrowi .lgtbd:empty{display:none}
   .lgf .ml{display:block}
   .league{padding:16px}
 }
@@ -165,6 +175,11 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
     <label for="file" class="btn ghost" id="fbtn">CSVファイルを選ぶ</label>
     <span class="hint" id="fstat" role="status" aria-live="polite">大会CSV作成ツールで出力したCSV(例: 20261001-master.csv)を選ぶ。</span>
   </div>
+  <div class="actions" id="exrow" hidden>
+    <input id="sfile" class="sr" type="file" accept=".csv,text/csv">
+    <label for="sfile" class="btn ghost small">スケジュールCSVを選んで読み込む</label>
+    <span class="hint" id="exstat" role="status" aria-live="polite"></span>
+  </div>
 </section>
 
 <form class="card" id="setup" hidden novalidate autocomplete="off" aria-labelledby="h2a">
@@ -194,9 +209,9 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
       <small id="tnhint"></small>
     </fieldset>
   </div>
-  <p class="hintline">1チームが打つ対局数と開始日を、リーグごとに入れる。開始日から、開催曜日ごとに「1日の試合数」ずつ回戦を割り当てる。2次以降のリーグは、進むチームがまだ決まらないため、「予選1位」のような順位の枠で組み合わせを作る。</p>
+  <p class="hintline">1チームが打つ対局数と開始日を、リーグごとに入れる。開始日から、開催曜日ごとに「1日の試合数」ずつ回戦を割り当てる。2次以降のリーグは、進むチームがまだ決まらないため、「予選1位」のような順位の枠で組み合わせを作る。2次以降のリーグの日程がまだ決まっていなければ、「未定」にチェックを入れる。未定のリーグは、スケジュールのCSVに入れない(あとでこのツールに読み込み直して、足せる)。</p>
   <div class="lgset">
-    <div class="lghead" aria-hidden="true"><span>リーグ</span><span>チーム数</span><span>1チームの対局数</span><span>開始日</span><span></span></div>
+    <div class="lghead" aria-hidden="true"><span>リーグ</span><span>チーム数</span><span>1チームの対局数</span><span>開始日</span><span></span><span></span></div>
     <div id="lgrows" class="lgset"></div>
   </div>
   <p class="err" id="err" role="alert"></p>
@@ -363,6 +378,7 @@ const norm=s=>String(s||"").normalize("NFKC").trim();
 const TABLE_DEFAULT=["薔薇","金木犀","向日葵"];      // 卓の名前の初期値。4つ目からは空欄
 let EV=null;        // 読み込んだ大会 {title,key,teams:[名前],leagues:[{name,n,labels}]}
 let SCH=[];         // リーグごとのスケジュール(rounds・seat・stats に、G=対局数、days=開催日、date=回戦ごとの日付 を足したもの)
+let OLD=[];         // すでにあるスケジュールCSVから読んだ、リーグごとの内容(なければ null)。{G,rounds,seat,stats,date,start,wds,per}
 let CAL=null;       // 作ったときの設定 {per:1日の試合数,wds:[開催曜日 0=日…6=土],tables:[卓の名前]}
 let VIEW="round";
 
@@ -407,9 +423,120 @@ $("file").addEventListener("change",async e=>{
     EV=toEvent(decode(await file.arrayBuffer()),file.name);
     $("fstat").textContent=`${file.name} を読み込んだ。${EV.title?`「${EV.title}」`:""}${EV.teams.length}チーム・${EV.leagues.length}リーグ。`+EV.notes.join("");
     $("fstat").style.color="";$("fbtn").textContent="別のCSVに差し替える";
+    OLD=EV.leagues.map(()=>null);
     showSetup();
-  }catch(err){EV=null;$("fstat").textContent=err.message;$("fstat").style.color="var(--minus)";$("setup").hidden=true;$("result").hidden=true}
+    $("exrow").hidden=false;
+    await findExisting();
+  }catch(err){EV=null;$("fstat").textContent=err.message;$("fstat").style.color="var(--minus)";$("setup").hidden=true;$("result").hidden=true;$("exrow").hidden=true}
 });
+
+/* ---------- すでにあるスケジュールCSVの読み込み ----------
+   大会CSVと同じ番号(YYYYMMXX)のスケジュールCSVがデータ用リポジトリにあれば、読み込んで入力欄と表に出す。
+   読み込んだリーグは、対局数を変えたり「組み合わせを作り直す」にチェックを入れたりしないかぎり、組み合わせと席をそのまま使う。 */
+const DATA_REPO="event-data";
+const REPO_OWNER=location.hostname.endsWith(".github.io")?location.hostname.split(".")[0]:"";
+async function fetchExisting(key){
+  const name=`${key}-schedule.csv`,q=`?t=${Date.now()}`;
+  let r=await fetch((REPO_OWNER?`${location.origin}/${DATA_REPO}/`:"")+name+(REPO_OWNER?q:""),{cache:"no-store"}).catch(()=>null);     // 手元での確認では、ページと同じ場所から読む
+  if((!r||!r.ok)&&REPO_OWNER) r=await fetch(`https://raw.githubusercontent.com/${REPO_OWNER}/${DATA_REPO}/HEAD/${name}${q}`,{cache:"no-store"}).catch(()=>null);
+  return r&&r.ok?decode(await r.arrayBuffer()):null;
+}
+async function findExisting(){
+  const st=$("exstat");st.style.color="";
+  if(!EV.key){st.textContent="大会CSVの名前から番号(YYYYMMXX)がわからないため、すでにあるスケジュールは探していない。";return}
+  st.textContent=`${EV.key}-schedule.csv を探している…`;
+  const key=EV.key,text=await fetchExisting(key);
+  if(!EV||EV.key!==key)return;                         // 探しているあいだに、別の大会CSVに差し替えられた
+  if(text==null){st.textContent=`${key}-schedule.csv は、まだない。新しく作る。`;return}
+  applyExisting(text,`${key}-schedule.csv`);
+}
+$("sfile").addEventListener("change",async e=>{
+  const file=e.target.files[0]; e.target.value=""; if(!file||!EV)return;
+  applyExisting(decode(await file.arrayBuffer()),file.name);
+});
+/* スケジュールCSVを読み、いまの大会CSVのリーグに当てはめる。リーグごとに、合わないものは使わない */
+function applyExisting(text,label){
+  const st=$("exstat");
+  let ex;
+  try{ex=readExisting(text)}catch(err){st.textContent=`${label} を読めなかった: ${err.message}`;st.style.color="var(--minus)";return}
+  const used=[],skipped=[];
+  const pref=[...ex.values()].reduce((a,X)=>X.order.length>a.length?X.order:a,[]);      // 卓の並び順は、卓がいちばん多いリーグのものにそろえる
+  OLD=EV.leagues.map((l,k)=>{
+    const X=ex.get(l.name)||(ex.size===1&&ex.has("")&&k===0?ex.get(""):null);
+    if(!X)return null;
+    try{const o=toOld(l,X,pref);used.push(l.name);return o}catch(err){skipped.push(`${l.name}(${err.message})`);return null}
+  });
+  if(!used.length){st.textContent=`${label} を読んだが、使えるリーグがなかった`+(skipped.length?`: ${skipped.join("、")}`:"。");st.style.color="var(--minus)";showSetup();return}
+  showSetup();
+  /* 入力欄に、読み込んだ内容を入れる。CSVにないリーグ(2次以降)は未定にする */
+  const f=OLD.find(Boolean);
+  if(f.per)$("perday").value=f.per;
+  if(f.wds)[...WD].forEach((c,i)=>$(`w${i}`).checked=f.wds.includes(c));
+  const names=OLD.filter(Boolean).reduce((a,o)=>o.tables.length>a.length?o.tables:a,[]);
+  names.forEach((n,i)=>{if($(`t${i}`))$(`t${i}`).value=n});
+  EV.leagues.forEach((l,k)=>{const o=OLD[k];
+    if(o){$(`g${k}`).value=o.G;$(`d${k}`).value=o.start}
+    else if(k)$(`u${k}`).checked=true;
+  });
+  syncRows();hints();
+  st.style.color="";
+  st.textContent=`${label} を読み込んだ。${used.join("・")}の組み合わせと席を、そのまま使う。`+
+    (EV.leagues.some((l,k)=>k&&!OLD[k]&&!skipped.some(x=>x.startsWith(l.name)))?"CSVにないリーグは「未定」にした。":"")+
+    (skipped.length?`読み込まなかったリーグ: ${skipped.join("、")}。`:"");
+  build(true);                                          // 読み込んだ内容を、すぐ下の表に出す
+}
+/* スケジュールCSV → リーグ名ごとの行 */
+function readExisting(text){
+  const rows=parseCSV(text.replace(/^﻿/,""));
+  if(rows.length<2) throw new Error("データ行がない。");
+  const h=rows[0].map(s=>s.trim()),col=n=>h.indexOf(n),cl=col("リーグ"),ct=col("チーム");
+  const rc=h.map((x,i)=>{const m=x.match(/^第(\d+)戦$/);return m?[i,+m[1]]:null}).filter(Boolean).sort((a,b)=>a[1]-b[1]);
+  if(ct<0||!rc.length) throw new Error("スケジュールCSVの形ではない(「チーム」「第1戦」の列がない)。");
+  const get=(r,n)=>col(n)>=0?(r[col(n)]||"").trim():"";
+  const M=new Map();
+  for(const r of rows.slice(1)){
+    const team=(r[ct]||"").trim(); if(!team)continue;
+    const lg=cl>=0?(r[cl]||"").trim():"";
+    let X=M.get(lg); if(!X){X={rows:[],start:get(r,"開始日"),wds:get(r,"開催曜日"),per:parseInt(get(r,"1日の試合数"))||0,order:get(r,"卓").split("/").map(x=>x.trim()).filter(Boolean)};M.set(lg,X)}
+    X.rows.push({team,cells:rc.map(([c])=>(r[c]||"").trim())});
+  }
+  if(!M.size) throw new Error("チームの入った行がない。");
+  return M;
+}
+/* 1リーグ分を、このツールの形に直す。大会CSVと合わなければエラーにする */
+function toOld(l,X,pref){
+  const idx=new Map(l.labels.map((x,i)=>[x,i]));
+  if(X.rows.length!==l.n||X.rows.some(r=>!idx.has(r.team))||new Set(X.rows.map(r=>r.team)).size!==l.n) throw new Error("チームが大会CSVと合わない");
+  const R=Math.max(...X.rows.map(r=>r.cells.reduce((a,c,i)=>c?i+1:a,0)));
+  if(!R) throw new Error("回戦が入っていない");
+  const per=[];                                         // 回戦ごと: {date,tb:Map(卓名→[東,南,西,北]),rest:[]}
+  for(let r=0;r<R;r++)per.push({date:null,dates:new Set(),tb:new Map(),rest:[]});
+  for(const row of X.rows){const i=idx.get(row.team);
+    for(let r=0;r<R;r++){
+      const m=(row.cells[r]||"").match(/^(?:(\d{4}-\d\d-\d\d)(?:\([^)]*\))?\s+)?(?:抜け番|(.+?)\s*([東南西北]))$/);
+      if(!m) throw new Error(`第${r+1}戦の欄「${row.cells[r]||""}」が読めない`);
+      per[r].dates.add(m[1]||"");
+      if(!m[2]){per[r].rest.push(i);continue}
+      let t=per[r].tb.get(m[2]); if(!t){t=[null,null,null,null];per[r].tb.set(m[2],t)}
+      const s="東南西北".indexOf(m[3]); if(t[s]!=null) throw new Error(`第${r+1}戦の${m[2]}に、同じ席のチームが2つある`);
+      t[s]=i;
+    }
+  }
+  const all=[...new Set(per.flatMap(p=>[...p.tb.keys()]))],base=pref.filter(n=>all.includes(n)).concat(X.order.filter(n=>all.includes(n)&&!pref.includes(n))),order=base.concat(all.filter(n=>!base.includes(n)).sort());
+  const rounds=per.map((p,r)=>{
+    const tables=order.filter(n=>p.tb.has(n)).map(n=>p.tb.get(n));
+    if(tables.some(t=>t.some(x=>x==null))) throw new Error(`第${r+1}戦に、4チームそろっていない卓がある`);
+    return {tables,rest:p.rest};
+  });
+  const seat=Array.from({length:l.n},()=>new Int16Array(4));
+  rounds.forEach(rd=>rd.tables.forEach(t=>t.forEach((i,s)=>seat[i][s]++)));
+  const games=seat.map(x=>x[0]+x[1]+x[2]+x[3]);
+  if(new Set(games).size!==1) throw new Error("チームによって対局数が違う");
+  const date=per.every(p=>p.dates.size===1&&!p.dates.has(""))?per.map(p=>toDay([...p.dates][0])):null;      // 日付が全回戦にそろっていれば、そのまま持つ
+  if(date&&date.some(d=>d==null)) throw new Error("日付が読めない");
+  const G=games[0];
+  return {G,rounds,seat,stats:statsOf(l.n,G,rounds,seat),date,start:date?iso(Math.min(...date)):X.start,wds:X.wds,per:X.per,tables:order};
+}
 
 /* ---------- 日付(1970-01-01 からの日数で持つ。時差の影響を受けない) ---------- */
 const WD="日月火水木金土";
@@ -429,35 +556,52 @@ function showSetup(){
 <span class="lgname">${esc(l.name)}</span><span class="lgteams">${l.n}チーム</span>
 <label class="lgf"><span class="ml">1チームの対局数</span><input id="g${k}" class="in mono" type="number" inputmode="numeric" min="1" max="60" step="1" aria-label="${esc(l.name)}の1チームあたりの対局数" data-k="${k}"></label>
 <label class="lgf"><span class="ml">開始日</span><input id="d${k}" class="in mono" type="date" aria-label="${esc(l.name)}の開始日" data-k="${k}"></label>
-<span class="lgplan" id="p${k}"></span></div>`).join("");
+<span class="lgtbd">${k?`<label class="chk"><input type="checkbox" id="u${k}" data-k="${k}" aria-label="${esc(l.name)}の日程は未定">未定</label>`:""}</span>
+<span class="lgplan"><span id="p${k}" class="lgplan"></span>${OLD[k]?`<label class="chk redo"><input type="checkbox" id="r${k}" data-k="${k}">組み合わせを作り直す</label>`:""}</span></div>`).join("");
   /* 卓の名前の欄。数は、チーム数を4で割った数(余りは切り捨て)。前に入れた名前は残す */
   const nt=tableCount(),prev=[...document.querySelectorAll("#tnrow input")].map(x=>x.value);
   $("tnrow").innerHTML=Array.from({length:nt},(_,i)=>`<label class="tn"><span>${i+1}</span><input id="t${i}" class="in" type="text" maxlength="12" value="${esc(i<prev.length?prev[i]:TABLE_DEFAULT[i]||"")}" aria-label="${i+1}つ目の卓の名前"></label>`).join("");
   $("tnhint").textContent=`${EV.leagues[0].n}チームなので${nt}卓。`+(EV.leagues.length>1?"チームが少ないリーグは、前から順に必要な数だけ使う。":"");
-  hints();
+  syncRows();hints();
   $("setup").hidden=false;$("result").hidden=true;$("err").textContent="";
   $("g0").focus();
+}
+/* 未定のリーグは、対局数と開始日の欄を使えなくする */
+const tbdOf=k=>!!(k&&$(`u${k}`)&&$(`u${k}`).checked);
+const redoOf=k=>!!($(`r${k}`)&&$(`r${k}`).checked);
+function syncRows(){
+  EV.leagues.forEach((_,k)=>{const t=tbdOf(k);
+    [$(`g${k}`),$(`d${k}`)].forEach(el=>{el.disabled=t;if(t)el.removeAttribute("aria-invalid")});
+    if($(`r${k}`))$(`r${k}`).closest("label").hidden=t;
+  });
 }
 const tableCount=()=>Math.floor(Math.max(...EV.leagues.map(l=>l.n))/4);
 function tableNames(){return Array.from({length:tableCount()},(_,i)=>norm($(`t${i}`).value))}
 function gamesOf(k){const v=norm($(`g${k}`).value);return /^\d+$/.test(v)&&+v>=1&&+v<=60?+v:null}
 function perDay(){const v=norm($("perday").value);return /^\d+$/.test(v)&&+v>=1&&+v<=20?+v:null}
 function weekdays(){return new Set([0,1,2,3,4,5,6].filter(i=>$(`w${i}`).checked))}
-/* いまの入力を調べる。リーグごとに {G,p,start,days,gErr,dErr} を返す */
+const wdText=wds=>[...wds].sort((a,b)=>a-b).map(i=>WD[i]).join("");
+/* いまの入力を調べる。リーグごとに {tbd,G,p,start,days,gErr,dErr,keep,verb,R} を返す。
+   tbd=未定、keep=読み込んだ組み合わせをそのまま使う、verb=日付も読み込んだまま使う(開始日・開催曜日・1日の試合数を変えていないとき) */
 function inspect(){
   const per=perDay(),wds=weekdays();let prevEnd=null,prevName="";
   return EV.leagues.map((l,k)=>{
-    const G=gamesOf(k),p=G==null?null:planOf(l.n,G),raw=$(`d${k}`).value,start=toDay(raw);
-    const o={G,p,start,days:null,gErr:"",dErr:[],dEmpty:!raw};
+    if(tbdOf(k)) return {tbd:true,G:null,p:null,start:null,days:null,gErr:"",dErr:[],dEmpty:true,keep:false,verb:false};
+    const old=OLD[k],G=gamesOf(k),raw=$(`d${k}`).value,start=toDay(raw);
+    const keep=!!old&&!redoOf(k)&&G===old.G, p=G==null?null:keep?{ok:true,R:old.rounds.length,per:Math.max(...old.rounds.map(r=>r.tables.length)),rest:old.rounds[0].rest.length,M:0}:planOf(l.n,G);
+    const verb=keep&&!!old.date&&raw===old.start&&per===old.per&&wdText(wds)===old.wds;
+    const o={tbd:false,G,p,start,days:null,gErr:"",dErr:[],dEmpty:!raw,keep,verb};
     if(G==null)o.gErr="対局数を1〜60の整数で入れる";
     else if(!p.ok)o.gErr=p.why;
     if(start==null)o.dErr.push("開始日を入れる");
     else{
-      if(wds.size&&!wds.has(wdOf(start)))o.dErr.push(`開始日 ${short(start)} の曜日(${WD[wdOf(start)]})が、開催曜日にチェックされていない`);
+      if(!verb&&wds.size&&!wds.has(wdOf(start)))o.dErr.push(`開始日 ${short(start)} の曜日(${WD[wdOf(start)]})が、開催曜日にチェックされていない`);
       if(prevEnd!=null&&prevEnd>=start)o.dErr.push(prevEnd===start?`${prevName}の最終日 ${short(prevEnd)} と、開始日が同じ日になっている`:`${prevName}の最終日 ${short(prevEnd)} が、開始日 ${short(start)} より後になっている`);
     }
     /* 最終日は、開始日の曜日が外れていても仮に数えて、次のリーグとの前後を調べる */
-    if(!o.gErr&&start!=null&&per!=null&&wds.size){const d=daysFrom(start,Math.ceil(p.R/per),wds);prevEnd=d[d.length-1];prevName=l.name;if(!o.dErr.length)o.days=d}
+    if(!o.gErr&&start!=null&&(verb||per!=null&&wds.size)){
+      const d=verb?[...new Set(old.date)].sort((a,b)=>a-b):daysFrom(start,Math.ceil(p.R/per),wds);
+      prevEnd=d[d.length-1];prevName=l.name;if(!o.dErr.length)o.days=d}
     else prevEnd=null;
     return o});
 }
@@ -466,19 +610,22 @@ function hints(){
   const per=perDay(),st=inspect();
   EV.leagues.forEach((l,k)=>{
     const o=st[k],el=$(`p${k}`),step=4/gcd(l.n,4);let a="",bad=false,b2="",bad2=false;
+    if(o.tbd){el.innerHTML="<span>日程は未定。スケジュールのCSVに、このリーグは入れない。</span>";return}
     if(o.G==null)a=step>1?`${l.n}チームなので、${step}の倍数を入れる`:"";
     else if(!o.p.ok){a=o.p.why+"(全チームを同じ対局数にするため)";bad=true}
-    else a=`${o.p.R}回戦・1回戦あたり${o.p.per}卓`+(o.p.rest?`・毎回${o.p.rest}チームが抜け番`:"")+(o.p.M%o.p.per?`(最後の回戦は${o.p.M%o.p.per}卓)`:"");
-    if(o.days){const n=o.days.length;b2=`${n}日間 ${short(o.days[0])}`+(n>1?`〜${short(o.days[n-1])}`:"")+`・1日${per}回戦(${per*o.p.per}局)`}
+    else if(o.keep)a=`読み込んだ組み合わせをそのまま使う(${o.p.R}回戦・1回戦あたり${o.p.per}卓)`;
+    else a=(OLD[k]?(redoOf(k)?"組み合わせを作り直す: ":"対局数を変えたので、組み合わせを作り直す: "):"")+`${o.p.R}回戦・1回戦あたり${o.p.per}卓`+(o.p.rest?`・毎回${o.p.rest}チームが抜け番`:"")+(o.p.M%o.p.per?`(最後の回戦は${o.p.M%o.p.per}卓)`:"");
+    if(o.days){const n=o.days.length;b2=`${n}日間 ${short(o.days[0])}`+(n>1?`〜${short(o.days[n-1])}`:"")+(o.verb?"・日付も読み込んだまま":`・1日${per}回戦(${per*o.p.per}局)`)}
     else if(o.dErr.length&&!o.dEmpty){b2=o.dErr.join(" / ");bad2=true}
     el.innerHTML=`<span${bad?' class="bad"':""}>${esc(a)}</span>`+(b2?`<span${bad2?' class="bad"':""}>${esc(b2)}</span>`:"");
   });
   return st;
 }
-$("setup").addEventListener("input",e=>{e.target.removeAttribute("aria-invalid");$("wdays").removeAttribute("aria-invalid");$("err").textContent="";hints()});
+$("setup").addEventListener("input",e=>{e.target.removeAttribute("aria-invalid");$("wdays").removeAttribute("aria-invalid");$("err").textContent="";syncRows();hints()});
 $("setup").addEventListener("submit",e=>{e.preventDefault();build()});
-$("again").addEventListener("click",build);
-function build(){
+$("again").addEventListener("click",()=>build());
+/* quiet=true は、スケジュールCSVを読み込んだ直後の表示用(入力に不足があっても、エラーを出さずに何もしない) */
+function build(quiet){
   const per=perDay(),wds=weekdays(),st=hints(),msg=[];let focus=null;
   const mark=(el,ok)=>{el.setAttribute("aria-invalid",!ok);if(!ok&&!focus)focus=el};
   mark($("perday"),per!=null);if(per==null)msg.push("1日の試合数: 1〜20の整数で入れる。");
@@ -487,18 +634,26 @@ function build(){
   tn.forEach((v,i)=>{
     const why=!v?"が空欄":v.includes("/")?"に「/」は使えない":v==="抜け番"?"に「抜け番」は使えない":tn.indexOf(v)<i?`が${tn.indexOf(v)+1}つ目と同じ名前`:"";
     mark($(`t${i}`),!why);if(why)msg.push(`卓の名前: ${i+1}つ目${why}。`)});
-  EV.leagues.forEach((l,k)=>{const o=st[k];
+  EV.leagues.forEach((l,k)=>{const o=st[k]; if(o.tbd)return;
     mark($(`g${k}`),!o.gErr);if(o.gErr)msg.push(`${l.name}: ${o.gErr}。`);
     mark($(`d${k}`),!o.dErr.length);o.dErr.forEach(m=>msg.push(`${l.name}: ${m}。`))});
-  if(msg.length){$("err").textContent=msg.join("\n");$("result").hidden=true;focus.focus();return}     // 前に作った表は、入力と食い違うので隠す
+  if(msg.length){
+    $("result").hidden=true;                             // 前に作った表は、入力と食い違うので隠す
+    if(quiet){document.querySelectorAll("#setup [aria-invalid]").forEach(el=>el.removeAttribute("aria-invalid"));return}
+    $("err").textContent=msg.join("\n");focus.focus();return}
   $("err").textContent="";
   CAL={per,wds:[...wds],tables:tn};
-  SCH=EV.leagues.map((l,k)=>{const o=st[k],s=makeSchedule(l.n,o.G,(Math.random()*2**31)|0);
-    return {...s,G:o.G,days:o.days,date:s.rounds.map((_,r)=>o.days[Math.floor(r/per)])}});
+  /* 未定のリーグは null。読み込んだ組み合わせをそのまま使うリーグは、日付だけを入力に合わせる */
+  SCH=EV.leagues.map((l,k)=>{const o=st[k]; if(o.tbd)return null;
+    if(o.keep){const old=OLD[k];
+      return {rounds:old.rounds,seat:old.seat,stats:old.stats,G:old.G,days:o.days,kept:true,date:o.verb?old.date:old.rounds.map((_,r)=>o.days[Math.floor(r/per)])}}
+    const s=makeSchedule(l.n,o.G,(Math.random()*2**31)|0);
+    return {...s,G:o.G,days:o.days,kept:false,date:s.rounds.map((_,r)=>o.days[Math.floor(r/per)])}});
+  $("again").hidden=!SCH.some(s=>s&&!s.kept);          // 作り直す対象がなければ、ボタンを出さない
   $("fname").textContent=fileName();
   $("result").hidden=false;$("out").hidden=true;$("dlmsg").hidden=true;
   render();
-  $("result").scrollIntoView({block:"start",behavior:"auto"});
+  if(!quiet)$("result").scrollIntoView({block:"start",behavior:"auto"});
 }
 
 /* ---------- 表示 ---------- */
@@ -508,10 +663,12 @@ const cellOf=(s,r,i)=>{for(let t=0;t<s.rounds[r].tables.length;t++){const k=s.ro
 function render(){
   $("vTeam").setAttribute("aria-pressed",VIEW==="team");$("vRound").setAttribute("aria-pressed",VIEW==="round");
   $("leagues").innerHTML=EV.leagues.map((l,k)=>{
-    const s=SCH[k],st=s.stats,R=s.rounds.length,rest=l.n-Math.floor(l.n/4)*4;
+    const s=SCH[k];
+    if(!s) return `<section class="league tbd"><h2>${esc(l.name)}<span>${l.n}チーム</span></h2><p class="stats"><span>日程は未定。スケジュールのCSVに、このリーグは入れない。</span></p></section>`;
+    const st=s.stats,R=s.rounds.length,rest=l.n-Math.floor(l.n/4)*4;
     const pair=st.pairMin===st.pairMax?`どの2チームも <b>${st.pairMin}回</b>`:`<b>${st.pairMin}〜${st.pairMax}回</b>(${st.pairDist.map(([c,n])=>`${c}回が${n}組`).join("、")})`;
-    const seat=st.seatSpread===0?`どのチームも東南西北が <b>${s.G/4}回ずつ</b>`:`チームごとの東南西北の回数の差は <b>最大${st.seatSpread}</b>`;
-    const head=`<h2>${esc(l.name)}<span>${l.n}チーム・${s.G}局ずつ・${R}回戦</span></h2>
+    const seat=st.seatSpread===0&&s.G%4===0?`どのチームも東南西北が <b>${s.G/4}回ずつ</b>`:`チームごとの東南西北の回数の差は <b>最大${st.seatSpread}</b>`;
+    const head=`<h2>${esc(l.name)}<span>${l.n}チーム・${s.G}局ずつ・${R}回戦</span>${s.kept?'<span class="keeptag">読み込んだ組み合わせ</span>':""}</h2>
 <p class="stats"><span>日程 <b>${short(s.days[0])}${s.days.length>1?`〜${short(s.days[s.days.length-1])}`:""}</b>(${s.days.length}日間・1日${CAL.per}回戦)</span><span>同卓する回数 ${pair}</span><span>席 ${seat}</span>${rest?`<span>抜け番 毎回${rest}チーム</span>`:""}</p>`;
     const dfirst=r=>r&&s.date[r]!==s.date[r-1]?" dfirst":"";      // 日付が変わる回戦に区切り線
     let table;
@@ -533,9 +690,10 @@ $("vRound").addEventListener("click",()=>{VIEW="round";render()});
 const fileName=()=>EV.key?`${EV.key}-schedule.csv`:"schedule.csv";
 const q=v=>/[",\r\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v;
 function toCSV(){
-  const maxR=Math.max(...SCH.map(s=>s.rounds.length)),wds=[...CAL.wds].sort((a,b)=>a-b).map(i=>WD[i]).join("");
+  const maxR=Math.max(...SCH.filter(Boolean).map(s=>s.rounds.length)),wds=[...CAL.wds].sort((a,b)=>a-b).map(i=>WD[i]).join("");
   const rows=[["大会名","リーグ","チーム","対局数","開始日","開催曜日","1日の試合数","卓",...Array.from({length:maxR},(_,r)=>`第${r+1}戦`)]];
-  EV.leagues.forEach((l,k)=>{const s=SCH[k],tbs=CAL.tables.slice(0,Math.floor(l.n/4)).join("/");      // このリーグで使う卓の名前(並び順)
+  EV.leagues.forEach((l,k)=>{const s=SCH[k]; if(!s)return;      // 未定のリーグは、CSVに入れない
+    const tbs=CAL.tables.slice(0,Math.floor(l.n/4)).join("/");      // このリーグで使う卓の名前(並び順)
     l.labels.forEach((name,i)=>rows.push([EV.title,l.name,name,String(s.G),iso(s.days[0]),wds,String(CAL.per),tbs,
       ...Array.from({length:maxR},(_,r)=>{if(r>=s.rounds.length)return "";const c=cellOf(s,r,i);return `${full(s.date[r])} `+(c?`${CAL.tables[c[0]]} ${SEATS[c[1]]}`:"抜け番")})]))});
   return rows.map(r=>r.map(q).join(",")).join("\r\n")+"\r\n";
