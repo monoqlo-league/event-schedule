@@ -158,6 +158,7 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
 /* 終了したリーグ */
 .donetag{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--line);color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.06em;white-space:nowrap}
 .keeptag.done{background:var(--line);color:var(--muted)!important}
+.realnote{margin-top:6px}
 </style>
 </head>
 <body>
@@ -381,6 +382,7 @@ const TABLE_DEFAULT=["薔薇","金木犀","向日葵"];      // 卓の名前の�
 let EV=null;        // 読み込んだ大会 {title,key,teams:[名前],leagues:[{name,n,labels}]}
 let SCH=[];         // リーグごとのスケジュール(rounds・seat・stats に、G=対局数、days=開催日、date=回戦ごとの日付 を足したもの)
 let OLD=[];         // すでにあるスケジュールCSVから読んだ、リーグごとの内容(なければ null)。{G,rounds,seat,stats,date,start,wds,per}
+let RANK=[];        // リーグごと: 終了したリーグの最終順位(チーム名を1位から並べたもの)。わからなければ null
 let DONE=[];        // リーグごと: 終了したか(対局記録の数が、読み込んだスケジュールの対局の数に届いている)。終了したリーグは変えられない
 let CAL=null;       // 作ったときの設定 {per:1日の試合数,wds:[開催曜日 0=日…6=土],tables:[卓の名前]}
 let VIEW="round";
@@ -404,21 +406,24 @@ function decode(buf){
 function toEvent(text,fileName){
   const rows=parseCSV(text.replace(/^﻿/,""));
   if(rows.length<2) throw new Error("CSVにデータ行がない。");
-  const h=rows[0].map(s=>s.trim()),ct=h.indexOf("チーム名"),ce=h.indexOf("大会名"),cl=h.indexOf("リーグ構成");
+  const h=rows[0].map(s=>s.trim()),ct=h.indexOf("チーム名"),ce=h.indexOf("大会名"),cl=h.indexOf("リーグ構成"),ci=h.indexOf("プレイヤーID"),ca=h.indexOf("点数修正");
   if(ct<0) throw new Error("「チーム名」の列が見つからない。大会CSV作成ツールで出力したCSVを選んでほしい。");
   const first=c=>c>=0?((rows.slice(1).find(r=>(r[c]||"").trim())||[])[c]||"").trim():"";
   const teams=[...new Set(rows.slice(1).map(r=>(r[ct]||"").trim()).filter(Boolean))];
   if(teams.length<4) throw new Error(`チームが${teams.length}つしかない。麻雀は4チーム以上が必要。`);
-  let plan=first(cl).split("/").map(x=>{const [name,n]=x.split(":");return {name:(name||"").trim(),n:Math.floor(+n)||0}}).filter(l=>l.name);
-  if(!plan.length) plan=[{name:"本戦",n:teams.length}];
+  let plan=first(cl).split("/").map(x=>{const [name,n,carry]=x.split(":");return {name:(name||"").trim(),n:Math.floor(+n)||0,carry:Math.max(0,Math.min(100,+carry||0))}}).filter(l=>l.name);
+  /* プレイヤーID → {チーム, 点数修正}。終了したリーグの順位を出すのに使う */
+  const roster=new Map();
+  if(ci>=0)rows.slice(1).forEach(r=>{const id=(r[ci]||"").trim(),team=(r[ct]||"").trim();if(id&&team)roster.set(id,{team,adj:ca>=0?parseFloat(r[ca])||0:0})});
+  if(!plan.length) plan=[{name:"本戦",n:teams.length,carry:0}];
   const notes=[];
   if(plan[0].n!==teams.length){notes.push(`リーグ構成では${plan[0].name}が${plan[0].n}チームだが、CSVには${teams.length}チームある。${teams.length}チームで作る。`);plan[0].n=teams.length}
-  const leagues=plan.map((l,k)=>({name:l.name,n:l.n,
+  const leagues=plan.map((l,k)=>({name:l.name,n:l.n,carry:l.carry,
     labels:k?Array.from({length:l.n},(_,i)=>`${plan[k-1].name}${i+1}位`):teams}));     // 2次以降は順位の枠
   const bad=leagues.find((l,k)=>l.n<4||k&&l.n>leagues[k-1].n);
   if(bad) throw new Error(`リーグ構成が読めない(${bad.name}のチーム数が${bad.n})。`);
   const m=fileName.match(/^(\d{8})(?:-master)?\.csv$/i);      // 古い名前(20261001.csv)も受け付ける
-  return {title:first(ce),key:m?m[1]:"",teams,leagues,notes};
+  return {title:first(ce),key:m?m[1]:"",teams,leagues,notes,roster};
 }
 $("file").addEventListener("change",async e=>{
   const file=e.target.files[0]; e.target.value=""; if(!file)return;
@@ -426,7 +431,7 @@ $("file").addEventListener("change",async e=>{
     EV=toEvent(decode(await file.arrayBuffer()),file.name);
     $("fstat").textContent=`${file.name} を読み込んだ。${EV.title?`「${EV.title}」`:""}${EV.teams.length}チーム・${EV.leagues.length}リーグ。`+EV.notes.join("");
     $("fstat").style.color="";$("fbtn").textContent="別のCSVに差し替える";
-    OLD=EV.leagues.map(()=>null);DONE=EV.leagues.map(()=>false);
+    OLD=EV.leagues.map(()=>null);DONE=EV.leagues.map(()=>false);RANK=EV.leagues.map(()=>null);
     showSetup();
     $("exrow").hidden=false;
     await findExisting();
@@ -455,31 +460,58 @@ async function findExisting(){
   /* リーグごとの対局記録(YYYYMMXX-games1.csv …)も読み、終わったリーグを調べる */
   const games=await Promise.all(ev.leagues.map((_,k)=>fetchData(`${key}-games${k+1}.csv`)));
   if(EV!==ev)return;
-  applyExisting(text,`${key}-schedule.csv`,countGames(games));
+  applyExisting(text,`${key}-schedule.csv`,readGames(games));
 }
-/* 対局記録の数を、リーグごとに数える(ランキングページと同じ数え方)。
-   非表示の対局は数えない。前のリーグのファイルにもある対局は、後ろのリーグでは数えない */
-function countGames(texts){
+/* 対局記録を、リーグごとに読む(ランキングページと同じ読み方)。
+   非表示の対局は入れない。前のリーグのファイルにもある対局は、後ろのリーグには入れない。
+   返す形: リーグごとに [[ [プレイヤーID,獲得PT] ×4 ], …] */
+function readGames(texts){
   const seen=new Set();
   return texts.map(text=>{
-    if(text==null)return 0;
+    if(text==null)return [];
     const rows=parseCSV(text.replace(/^﻿/,""));
-    if(rows.length<2)return 0;
-    const h=rows[0].map(x=>x.trim()),col=n=>h.indexOf(n),cs=col("開始時間"),hid=col("非表示状態"),lk=col("牌譜リンク"),pc=[1,2,3,4].map(i=>col(`${i}位プレイヤー名`));
-    if(cs<0||pc.some(c=>c<0))return 0;
-    let n=0;
+    if(rows.length<2)return [];
+    const h=rows[0].map(x=>x.trim()),col=n=>h.indexOf(n),cs=col("開始時間"),hid=col("非表示状態"),lk=col("牌譜リンク"),
+      pc=[1,2,3,4].map(i=>col(`${i}位プレイヤー名`)),qc=[1,2,3,4].map(i=>col(`${i}位最終点数`));
+    if(cs<0||pc.some(c=>c<0))return [];
+    const out=[];
     for(const r of rows.slice(1)){
       if(hid>=0&&(r[hid]||"").trim().toLowerCase()==="yes")continue;
-      const who=pc.map(c=>{const raw=(r[c]||"").trim(),m=raw.match(/^\[[^\]]*\]\[(\d+)\]/);return m?m[1]:raw});
-      const id=lk>=0&&(r[lk]||"").trim()||(r[cs]||"").trim()+"/"+who.join();
+      const seats=pc.map((c,i)=>{const raw=(r[c]||"").trim(),m=raw.match(/^\[[^\]]*\]\[(\d+)\]/);return [m?m[1]:raw,qc[i]>=0?parseFloat(r[qc[i]]):NaN]});
+      const id=lk>=0&&(r[lk]||"").trim()||(r[cs]||"").trim()+"/"+seats.map(x=>x[0]).join();
       if(seen.has(id))continue;
-      seen.add(id);n++;
+      seen.add(id);out.push(seats);
     }
-    return n;
+    return out;
   });
 }
+/* 持ち越すPT(ランキングページと同じ。割合を掛けて小数第2位が出たら切り上げる) */
+const carryOver=(pt,pct)=>Math.ceil(Math.round(pt*10)*pct/100-1e-9)/10;
+/* 終了したリーグの最終順位を、ランキングページと同じ計算で出す。
+   チームの合計PT = 持ち越し + 点数修正(1次リーグだけ) + メンバーがこのリーグで得たPT。同点は、前のリーグの順位が上のほうを上にする。
+   前のリーグの順位がわからないリーグ、PTの読めない対局があるリーグは null */
+function standings(games){
+  const out=[];
+  EV.leagues.forEach((l,k)=>{
+    const prev=k?out[k-1]:null,g=games[k]||[];
+    if(!DONE[k]||!EV.roster.size||k&&!prev||g.some(seats=>seats.some(x=>isNaN(x[1])))){out.push(null);return}
+    const useAdj=k===0,up=k?prev.slice(0,l.n):null,only=up?new Set(up.map(t=>t.name)):null;
+    const carry=new Map(),seed=new Map();
+    if(up)up.forEach((t,i)=>{carry.set(t.name,carryOver(t.pt,l.carry));seed.set(t.name,i)});
+    const P=new Map();
+    for(const seats of g)seats.forEach(([id,pt])=>{let p=P.get(id);if(!p){p={id,pt:0};P.set(id,p)}p.pt+=pt});
+    for(const p of P.values()){const x=EV.roster.get(p.id);p.team=x?x.team:"";p.adj=x&&useAdj?x.adj:0;p.pt+=p.adj}
+    const L=[...P.values()].sort((a,b)=>b.pt-a.pt);
+    const TM=new Map(),tm=name=>{let t=TM.get(name);if(!t){const c=carry.get(name)||0;t={name,base:c,gpt:0};TM.set(name,t)}return t};
+    for(const [id,x] of EV.roster){if(only&&!only.has(x.team))continue;const t=tm(x.team);if(!P.has(id)&&useAdj)t.base+=x.adj}
+    L.forEach(p=>{if(!p.team||only&&!only.has(p.team))return;const t=tm(p.team);t.gpt+=p.pt-p.adj;t.base+=p.adj});
+    const sd=t=>seed.has(t.name)?seed.get(t.name):1e9;
+    out.push([...TM.values()].map(t=>(t.pt=t.base+t.gpt,t)).sort((a,b)=>b.pt-a.pt||sd(a)-sd(b)));
+  });
+  return out.map(x=>x&&x.map(t=>t.name));
+}
 /* スケジュールCSVを読み、いまの大会CSVのリーグに当てはめる。リーグごとに、合わないものは使わない */
-function applyExisting(text,label,counts){
+function applyExisting(text,label,games){
   const st=$("exstat");
   let ex;
   try{ex=readExisting(text)}catch(err){st.textContent=`${label} を読めなかった: ${err.message}`;st.style.color="var(--minus)";return}
@@ -491,7 +523,8 @@ function applyExisting(text,label,counts){
     try{const o=toOld(l,X,pref);used.push(l.name);return o}catch(err){skipped.push(`${l.name}(${err.message})`);return null}
   });
   /* 終了したリーグ: 対局記録の数が、スケジュールにある対局の数に届いている */
-  DONE=OLD.map((o,k)=>!!o&&!!o.date&&counts[k]>=o.rounds.reduce((x,r)=>x+r.tables.length,0));
+  DONE=OLD.map((o,k)=>!!o&&!!o.date&&games[k].length>=o.rounds.reduce((x,r)=>x+r.tables.length,0));
+  RANK=standings(games);
   if(!used.length){st.textContent=`${label} を読んだが、使えるリーグがなかった`+(skipped.length?`: ${skipped.join("、")}`:"。");st.style.color="var(--minus)";showSetup();return}
   showSetup();
   /* 入力欄に、読み込んだ内容を入れる。CSVにないリーグ(2次以降)は未定にする */
@@ -689,25 +722,31 @@ function build(){
 /* 卓の表示名。名前のあとに「卓」を付ける(薔薇 → 薔薇卓)。もともと「卓」で終わる名前はそのまま。CSVには名前だけを入れる */
 const tableLabel=n=>/卓$/.test(n)?n:n+"卓";
 const cellOf=(s,r,i)=>{for(let t=0;t<s.rounds[r].tables.length;t++){const k=s.rounds[r].tables[t].indexOf(i);if(k>=0)return [t,k]}return null};
+/* 表に出すチーム名。前のリーグが終了していれば、順位の枠(予選1位…)に、その順位のチーム名を入れる。CSVに出すのは枠のまま */
+function shownNames(k){
+  const l=EV.leagues[k],r=k?RANK[k-1]:null;
+  return r&&r.length>=l.n?l.labels.map((_,i)=>r[i]):l.labels;
+}
 function render(){
   $("vTeam").setAttribute("aria-pressed",VIEW==="team");$("vRound").setAttribute("aria-pressed",VIEW==="round");
   $("leagues").innerHTML=EV.leagues.map((l,k)=>{
-    const s=SCH[k];
+    const s=SCH[k],names=shownNames(k),real=names!==l.labels;
     if(!s) return `<section class="league tbd"><h2>${esc(l.name)}<span>${l.n}チーム</span></h2><p class="stats"><span>日程は未定。スケジュールのCSVに、このリーグは入れない。</span></p></section>`;
     const st=s.stats,R=s.rounds.length,rest=l.n-Math.floor(l.n/4)*4;
     const pair=st.pairMin===st.pairMax?`どの2チームも <b>${st.pairMin}回</b>`:`<b>${st.pairMin}〜${st.pairMax}回</b>(${st.pairDist.map(([c,n])=>`${c}回が${n}組`).join("、")})`;
     const seat=st.seatSpread===0&&s.G%4===0?`どのチームも東南西北が <b>${s.G/4}回ずつ</b>`:`チームごとの東南西北の回数の差は <b>最大${st.seatSpread}</b>`;
     const head=`<h2>${esc(l.name)}<span>${l.n}チーム・${s.G}局ずつ・${R}回戦</span>${s.locked?'<span class="keeptag done">終了・読み込んだまま</span>':s.kept?'<span class="keeptag">読み込んだ組み合わせ</span>':""}</h2>
-<p class="stats"><span>日程 <b>${short(s.days[0])}${s.days.length>1?`〜${short(s.days[s.days.length-1])}`:""}</b>(${s.days.length}日間・1日${s.per}回戦)</span><span>同卓する回数 ${pair}</span><span>席 ${seat}</span>${rest?`<span>抜け番 毎回${rest}チーム</span>`:""}</p>`;
+<p class="stats"><span>日程 <b>${short(s.days[0])}${s.days.length>1?`〜${short(s.days[s.days.length-1])}`:""}</b>(${s.days.length}日間・1日${s.per}回戦)</span><span>同卓する回数 ${pair}</span><span>席 ${seat}</span>${rest?`<span>抜け番 毎回${rest}チーム</span>`:""}</p>`+
+      (real?`<p class="stats realnote"><span>${esc(EV.leagues[k-1].name)}が終了したので、${esc(EV.leagues[k-1].name)}の順位の枠に、結果のチーム名を入れて表示している。CSVには「${esc(l.labels[0])}」のような枠のまま出力する(ランキングページがチーム名に置き換える)。</span></p>`:"");
     const dfirst=r=>r&&s.date[r]!==s.date[r-1]?" dfirst":"";      // 日付が変わる回戦に区切り線
     let table;
     if(VIEW==="team"){
       table=`<table class="sch"><thead><tr><th>チーム</th>${s.rounds.map((_,r)=>`<th class="rd${dfirst(r)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></th>`).join("")}${SEATS.map(x=>`<th class="cnt">${x}</th>`).join("")}</tr></thead><tbody>`+
-        l.labels.map((name,i)=>`<tr><th scope="row">${esc(name)}</th>${s.rounds.map((_,r)=>{const c=cellOf(s,r,i);return c?`<td class="tc${dfirst(r)}">${esc(tableLabel(CAL.tables[c[0]]))}<b${c[1]?"":' class="seatE"'}>${SEATS[c[1]]}</b></td>`:`<td class="rest${dfirst(r)}">抜け番</td>`}).join("")}${[0,1,2,3].map(x=>`<td class="cnt">${s.seat[i][x]}</td>`).join("")}</tr>`).join("")+"</tbody></table>";
+        names.map((name,i)=>`<tr><th scope="row">${esc(name)}</th>${s.rounds.map((_,r)=>{const c=cellOf(s,r,i);return c?`<td class="tc${dfirst(r)}">${esc(tableLabel(CAL.tables[c[0]]))}<b${c[1]?"":' class="seatE"'}>${SEATS[c[1]]}</b></td>`:`<td class="rest${dfirst(r)}">抜け番</td>`}).join("")}${[0,1,2,3].map(x=>`<td class="cnt">${s.seat[i][x]}</td>`).join("")}</tr>`).join("")+"</tbody></table>";
     }else{
       table=`<table class="sch"><thead><tr><th>回戦</th><th>卓</th>${SEATS.map(x=>`<th class="l">${x}家</th>`).join("")}</tr></thead><tbody>`+
-        s.rounds.map((rd,r)=>rd.tables.map((t,ti)=>`<tr${ti?"":` class="${dfirst(r).trim()}"`}>${ti?"":`<td class="rnd" rowspan="${rd.tables.length+(rd.rest.length?1:0)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></td>`}<td class="tb">${esc(tableLabel(CAL.tables[ti]))}</td>${t.map(i=>`<td class="l" style="font-family:inherit">${esc(l.labels[i])}</td>`).join("")}</tr>`).join("")+
-          (rd.rest.length?`<tr><td class="rest">抜け番</td><td class="l rest" colspan="4" style="font-family:inherit">${rd.rest.map(i=>esc(l.labels[i])).join("、")}</td></tr>`:"")).join("")+"</tbody></table>";
+        s.rounds.map((rd,r)=>rd.tables.map((t,ti)=>`<tr${ti?"":` class="${dfirst(r).trim()}"`}>${ti?"":`<td class="rnd" rowspan="${rd.tables.length+(rd.rest.length?1:0)}">第${r+1}戦<span class="dt">${short(s.date[r])}</span></td>`}<td class="tb">${esc(tableLabel(CAL.tables[ti]))}</td>${t.map(i=>`<td class="l" style="font-family:inherit">${esc(names[i])}</td>`).join("")}</tr>`).join("")+
+          (rd.rest.length?`<tr><td class="rest">抜け番</td><td class="l rest" colspan="4" style="font-family:inherit">${rd.rest.map(i=>esc(names[i])).join("、")}</td></tr>`:"")).join("")+"</tbody></table>";
     }
     return `<section class="league">${head}<div class="sbox">${table}</div></section>`;
   }).join("");
