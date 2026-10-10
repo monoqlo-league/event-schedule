@@ -458,12 +458,34 @@ async function loadList(){
   const keys=[...new Set(paths.map(p=>(p.match(/^(\d{8})-master\.csv$/)||[])[1]).filter(Boolean))].sort().reverse();
   if(!keys.length){sel.innerHTML="<option>大会がない</option>";st.textContent="データ置き場に大会マスター(YYYYMMXX-master.csv)がない。大会CSV作成ツールで作ったCSVを、先にデータ置き場(event-data)に上げる。";st.style.color="var(--minus)";return}
   const texts=await Promise.all(keys.map(k=>fetchData(`${k}-master.csv`)));
-  EVLIST=keys.map((k,i)=>{let title="";if(texts[i]){MASTER_TEXT.set(k,texts[i]);try{title=toEvent(texts[i],`${k}-master.csv`).title}catch(e){}}
-    return {key:k,title,sched:paths.includes(`${k}-schedule.csv`),ok:!!texts[i]}});
-  sel.innerHTML=EVLIST.map(e=>`<option value="${e.key}"${e.ok?"":" disabled"}>${esc(e.title||`${ymOf(e.key)}の大会`)}(${e.key})${e.sched?"・スケジュールあり":"・スケジュールなし"}${e.ok?"":"・読めない"}</option>`).join("");
-  sel.disabled=false;
-  const first=EVLIST.find(e=>e.ok);
-  if(first){sel.value=first.key;await loadMaster(first.key)}
+  EVLIST=await Promise.all(keys.map(async(k,i)=>{
+    let title="",ev=null;
+    if(texts[i]){MASTER_TEXT.set(k,texts[i]);try{ev=toEvent(texts[i],`${k}-master.csv`);title=ev.title}catch(e){}}
+    const sched=paths.includes(`${k}-schedule.csv`);
+    return {key:k,title,sched,ok:!!ev,done:ev&&sched?await eventDone(k,ev):false};
+  }));
+  /* 終了した大会は選べない(グレーで「大会終了済」と出す) */
+  sel.innerHTML=EVLIST.map(e=>`<option value="${e.key}"${e.ok&&!e.done?"":" disabled"}>${esc(e.title||`${ymOf(e.key)}の大会`)}(${e.key})${e.done?"・大会終了済":e.sched?"・スケジュールあり":"・スケジュールなし"}${e.ok?"":"・読めない"}</option>`).join("");
+  const first=EVLIST.find(e=>e.ok&&!e.done);
+  if(!first){
+    sel.insertAdjacentHTML("afterbegin",'<option value="" selected disabled>選べる大会がない</option>');sel.disabled=false;
+    EV=null;$("setup").hidden=true;$("result").hidden=true;$("exrow").hidden=true;
+    st.textContent="データ置き場にある大会は、すべて終了済み。新しい大会は、大会CSV作成ツールで作った大会マスターをデータ置き場(event-data)に上げてから、「一覧を読み直す」を押す。";st.style.color="";
+    return;
+  }
+  sel.disabled=false;sel.value=first.key;await loadMaster(first.key);
+}
+/* 大会が終了したか。最後のリーグ(ファイナル)の対局記録の数が、スケジュールにあるそのリーグの対局の数に届いていれば終了。
+   チーム戦ランキングで、ファイナルに「完了」の印が出るのと同じ判断(非表示の対局は数えず、前のリーグのファイルにもある対局は数えない) */
+async function eventDone(key,ev){
+  const n=ev.leagues.length,last=ev.leagues[n-1].name;
+  const [st,...gs]=await Promise.all([fetchData(`${key}-schedule.csv`),...ev.leagues.map((_,k)=>fetchData(`${key}-games${k+1}.csv`))]);
+  if(!st||!gs[n-1])return false;
+  let X;
+  try{const M=readExisting(st);X=M.get(last)||(![...M.keys()].some(l=>ev.leagues.some(x=>x.name===l))?[...M.values()][n-1]:null)}catch(e){return false}
+  if(!X)return false;
+  const planned=X.rows.reduce((a,r)=>a+r.cells.filter(c=>c&&!/抜け番/.test(c)).length,0)/4;
+  return planned>0&&readGames(gs)[n-1].length>=planned;
 }
 $("evsel").addEventListener("change",e=>loadMaster(e.target.value));
 $("evreload").addEventListener("click",()=>loadList());
