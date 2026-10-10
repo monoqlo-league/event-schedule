@@ -154,11 +154,15 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
 .backnav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* すでにあるスケジュールCSVの読み込み状況(ボタンなし) */
-.exline{margin:12px 0 0}
+.exline{margin:4px 0 0}
 /* 終了したリーグ */
 .donetag{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--line);color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.06em;white-space:nowrap}
 .keeptag.done{background:var(--line);color:var(--muted)!important}
 .realnote{margin-top:6px}
+
+/* 大会の選択 */
+.evpick{align-items:center}
+.evsel{width:100%;max-width:100%;min-width:0;flex:1 1 260px;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -176,12 +180,13 @@ table.sch{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-n
 </header>
 
 <section class="card" aria-labelledby="h1a">
-  <h2 id="h1a">大会CSVを読み込む</h2>
-  <div class="actions">
-    <input id="file" class="sr" type="file" accept=".csv,text/csv">
-    <label for="file" class="btn ghost" id="fbtn">CSVファイルを選ぶ</label>
-    <span class="hint" id="fstat" role="status" aria-live="polite">大会CSV作成ツールで出力したCSV(例: 20261001-master.csv)を選ぶ。</span>
+  <h2 id="h1a">大会を選ぶ</h2>
+  <div class="actions evpick">
+    <label for="evsel" class="sr">大会</label>
+    <select id="evsel" class="in evsel" disabled><option>読み込み中…</option></select>
+    <button type="button" class="btn ghost small" id="evreload">一覧を読み直す</button>
   </div>
+  <p class="hint" id="fstat" role="status" aria-live="polite">データ置き場(event-data)にある大会の一覧を読み込んでいる…</p>
   <p class="hint exline" id="exrow" hidden><span id="exstat" role="status" aria-live="polite"></span></p>
 </section>
 
@@ -425,18 +430,58 @@ function toEvent(text,fileName){
   const m=fileName.match(/^(\d{8})(?:-master)?\.csv$/i);      // 古い名前(20261001.csv)も受け付ける
   return {title:first(ce),key:m?m[1]:"",teams,leagues,notes,roster};
 }
-$("file").addEventListener("change",async e=>{
-  const file=e.target.files[0]; e.target.value=""; if(!file)return;
+/* ---------- 大会の一覧(データ置き場 event-data から) ----------
+   大会マスター(YYYYMMXX-master.csv)は、データ置き場に上げてあるものを選んで読む(手元のファイルは使わない。古いものとの取り違えを防ぐため)。
+   一覧は index.json(データ置き場の GitHub Actions が作る)から作り、読めなければ GitHub の API で探す */
+const MASTER_TEXT=new Map();                              // 大会の番号 → 大会マスターの中身
+const ymOf=k=>`${k.slice(0,4)}年${+k.slice(4,6)}月`;
+async function listPaths(){
+  const q=`?t=${Date.now()}`;
   try{
-    EV=toEvent(decode(await file.arrayBuffer()),file.name);
-    $("fstat").textContent=`${file.name} を読み込んだ。${EV.title?`「${EV.title}」`:""}${EV.teams.length}チーム・${EV.leagues.length}リーグ。`+EV.notes.join("");
-    $("fstat").style.color="";$("fbtn").textContent="別のCSVに差し替える";
+    let r=REPO_OWNER?await fetch(`https://raw.githubusercontent.com/${REPO_OWNER}/${DATA_REPO}/HEAD/index.json${q}`,{cache:"no-store"}).catch(()=>null):null;
+    if(!r||!r.ok) r=await fetch((REPO_OWNER?`${location.origin}/${DATA_REPO}/`:"")+"index.json"+(REPO_OWNER?q:""),{cache:"no-store"}).catch(()=>null);
+    if(r&&r.ok){const j=await r.json(); if(j&&j.files) return Object.keys(j.files)}
+  }catch(e){}
+  if(!REPO_OWNER) return null;
+  try{
+    const r=await fetch(`https://api.github.com/repos/${REPO_OWNER}/${DATA_REPO}/git/trees/HEAD?recursive=1${q.replace("?","&")}`);
+    if(!r.ok) return null;
+    const j=await r.json(); return Array.isArray(j.tree)?j.tree.filter(f=>f.type==="blob").map(f=>f.path):null;
+  }catch(e){return null}
+}
+let EVLIST=[];
+async function loadList(){
+  const sel=$("evsel"),st=$("fstat");
+  sel.disabled=true;sel.innerHTML="<option>読み込み中…</option>";st.style.color="";st.textContent="データ置き場(event-data)にある大会の一覧を読み込んでいる…";
+  const paths=await listPaths();
+  if(!paths){sel.innerHTML="<option>一覧を読めなかった</option>";st.textContent="大会の一覧を読めなかった。少し待ってから「一覧を読み直す」を押す。";st.style.color="var(--minus)";return}
+  const keys=[...new Set(paths.map(p=>(p.match(/^(\d{8})-master\.csv$/)||[])[1]).filter(Boolean))].sort().reverse();
+  if(!keys.length){sel.innerHTML="<option>大会がない</option>";st.textContent="データ置き場に大会マスター(YYYYMMXX-master.csv)がない。大会CSV作成ツールで作ったCSVを、先にデータ置き場(event-data)に上げる。";st.style.color="var(--minus)";return}
+  const texts=await Promise.all(keys.map(k=>fetchData(`${k}-master.csv`)));
+  EVLIST=keys.map((k,i)=>{let title="";if(texts[i]){MASTER_TEXT.set(k,texts[i]);try{title=toEvent(texts[i],`${k}-master.csv`).title}catch(e){}}
+    return {key:k,title,sched:paths.includes(`${k}-schedule.csv`),ok:!!texts[i]}});
+  sel.innerHTML=EVLIST.map(e=>`<option value="${e.key}"${e.ok?"":" disabled"}>${esc(e.title||`${ymOf(e.key)}の大会`)}(${e.key})${e.sched?"・スケジュールあり":"・スケジュールなし"}${e.ok?"":"・読めない"}</option>`).join("");
+  sel.disabled=false;
+  const first=EVLIST.find(e=>e.ok);
+  if(first){sel.value=first.key;await loadMaster(first.key)}
+}
+$("evsel").addEventListener("change",e=>loadMaster(e.target.value));
+$("evreload").addEventListener("click",()=>loadList());
+async function loadMaster(key){
+  const name=`${key}-master.csv`,st=$("fstat");
+  try{
+    const text=MASTER_TEXT.get(key)||await fetchData(name);
+    if(!text) throw new Error(`${name} を読めなかった。`);
+    EV=toEvent(text,name);
+    const e=EVLIST.find(x=>x.key===key);
+    st.textContent=`${name} を読み込んだ。${EV.title?`「${EV.title}」`:""}${EV.teams.length}チーム・${EV.leagues.length}リーグ。`+(e&&e.sched?"この大会には、スケジュールCSVがすでにある。":"この大会のスケジュールCSVは、まだない。")+EV.notes.join("");
+    st.style.color="";
     OLD=EV.leagues.map(()=>null);DONE=EV.leagues.map(()=>false);RANK=EV.leagues.map(()=>null);
     showSetup();
     $("exrow").hidden=false;
     await findExisting();
-  }catch(err){EV=null;$("fstat").textContent=err.message;$("fstat").style.color="var(--minus)";$("setup").hidden=true;$("result").hidden=true;$("exrow").hidden=true}
-});
+  }catch(err){EV=null;st.textContent=err.message;st.style.color="var(--minus)";$("setup").hidden=true;$("result").hidden=true;$("exrow").hidden=true}
+}
 
 /* ---------- すでにあるスケジュールCSVの読み込み ----------
    大会CSVと同じ番号(YYYYMMXX)のスケジュールCSVがデータ用リポジトリにあれば、読み込んで入力欄と表に出す。
@@ -774,6 +819,7 @@ $("dl").addEventListener("click",()=>{
   $("csv").value=csv;$("out").hidden=false;$("copystat").textContent="";
   $("dlmsg").textContent=`${name} を出力した。`;$("dlmsg").hidden=false;
 });
+loadList();
 $("copy").addEventListener("click",async()=>{
   const csv=$("csv").value;
   try{await navigator.clipboard.writeText(csv);$("copystat").textContent="コピーした。"}
